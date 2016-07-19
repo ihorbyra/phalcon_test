@@ -1,5 +1,7 @@
 <?php
 
+use Phalcon\Paginator\Adapter\NativeArray as PaginatorArray;
+
 class IndexController extends ControllerBase
 {
 
@@ -8,8 +10,21 @@ class IndexController extends ControllerBase
         $employees = $this->getEmployees();
         $allEmployees = $this->getAllEmployees();
 
-        $this->view->setVar('employees', $employees);
+        $currentPage = $this->request->getQuery('page', 'int', 1);
+        
+        $paginator   = new PaginatorArray(
+            array(
+                "data"  => $employees,
+                "limit" => 10,
+                "page"  => $currentPage
+            )
+        );
+
+        $page = $paginator->getPaginate();
+
+       //$this->view->setVar('employees', $employees);
         $this->view->setVar('allEmployees', $allEmployees);
+        $this->view->setVar('employees', $page);
     }
 
     public function getEmployees($parent = 0)
@@ -47,10 +62,17 @@ class IndexController extends ControllerBase
         return $employeesTree;
     }
 
-    public function getAllEmployees()
+    public function getAllEmployees($id = null)
     {
         $employeesTree = array();
-        $employees = Employees::find();
+        $level = 0;
+        $childs = $id.$this->getChildsString($id, $level);
+        $employees = Employees::find(
+            array(
+                "conditions" => ( ($id !== null) ? "id NOT IN({$childs})" : '' ),
+                "order" => "id",
+            )
+        );
 
         foreach ($employees as $employee) {
             $employeesTree[] = array(
@@ -113,7 +135,7 @@ class IndexController extends ControllerBase
     {
         $this->view->pick("index/editForm");
 
-        $allEmployees = $this->getAllEmployees();
+        $allEmployees = $this->getAllEmployees($id);
         $employee = Employees::findFirst($id);
         
         $this->view->setVar('parent', $allEmployees);
@@ -152,10 +174,43 @@ class IndexController extends ControllerBase
 
     public function deleteAction($id)
     {
-        $employee = Employees::findFirst($id);
-        $employee->delete();
+        foreach ($this->getEmployeeForDelete($id) as $employeeId) {
+            $employee = Employees::findFirst($employeeId);
+            $employee->delete();
+        }
+        //$employee = Employees::findFirst($id);
+        //$employee->delete();
 
         return $this->response->redirect('/');
+    }
+
+    public function getEmployeeForDelete($id)
+    {
+        $level = 1;
+        $employeesTree = null;
+        $employees = Employees::find("id = {$id}");
+
+        foreach ($employees as $employee) {
+            $employeesTree .= $employee->id;
+            $employeesTree .= $this->getChildsString($id, $level);
+        }
+
+        return explode(',', $employeesTree);
+    }
+
+    public function getChildsString($parent, $level)
+    {
+        if ($parent === null) return false;
+
+        $employeesTree = null;
+        $employees = Employees::find("parent = {$parent}");
+
+        foreach ($employees as $employee) {
+            $employeesTree .= ','.$employee->id;
+            $employeesTree .= $this->getChildsString($employee->id, $level++);
+        }
+
+        return $employeesTree;
     }
 
 }
